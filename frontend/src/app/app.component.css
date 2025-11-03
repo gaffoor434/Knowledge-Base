@@ -1,0 +1,39 @@
+/* App Component Styles */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+header {
+  background-color: #3f51b5;
+  color: white;
+  padding: 20px;
+  margin-bottom: 20px;
+  border-radius: 5px;
+  text-align: center;
+}
+
+.nav {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.nav-link {
+  color: #ffffff;
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.12);
+}
+
+.nav-link.active {
+  background: #ffffff;
+  color: #3f51b5;
+}
+
+.main-content {
+  display: block;
+}

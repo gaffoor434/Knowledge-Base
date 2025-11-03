@@ -1,0 +1,24 @@
+<div class="chat-container">
+  <div class="chat-window" id="chatWindow">
+    <div *ngFor="let msg of messages" class="message" [ngClass]="msg.role">
+      <div class="bubble">
+        <div class="content" [innerHTML]="formatContent(msg.content)"></div>
+        <div class="sources" *ngIf="msg.sources && msg.sources.length">
+          <span class="source-pill" *ngFor="let s of msg.sources">{{ s }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="typing" *ngIf="isLoading">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <div class="composer">
+    <textarea [(ngModel)]="query" placeholder="Ask the knowledge base..." (keydown)="onKeydown($event)"></textarea>
+    <button (click)="submitQuery()" [disabled]="isLoading || !query.trim()">Send</button>
+  </div>
+
+  <div class="error-message" *ngIf="errorMessage">
+    <p class="error">{{ errorMessage }}</p>
+  </div>
+</div>

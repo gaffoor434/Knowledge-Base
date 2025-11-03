@@ -1,0 +1,37 @@
+<div class="document-list-container">
+  <h2>Knowledge Base Documents</h2>
+  <div class="count" *ngIf="!isLoading">Total: {{ documents.length }}</div>
+  
+  <div *ngIf="isLoading" class="loading">
+    Loading documents...
+  </div>
+  
+  <div *ngIf="!isLoading && documents.length === 0" class="no-documents">
+    No documents found in the knowledge base.
+  </div>
+  
+  <div *ngIf="!isLoading && documents.length > 0">
+    <h3>Document List</h3>
+    <table class="document-table">
+      <thead>
+        <tr>
+          <th>Filename</th>
+          <th>Source Path</th>
+        <!-- <th>Last Modified</th> -->
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let doc of documents" class="document-item">
+          <td>{{ doc.filename }}</td>
+          <td>{{ doc.path }}</td>
+         <!-- <td>{{ doc.last_modified | date:'medium' }}</td> -->
+          <td class="actions">
+          <!-- <a [href]="getViewUrl(doc.filename)" target="_blank" class="btn btn-view">View</a> -->
+            <a [href]="getDownloadUrl(doc.filename)" download class="btn btn-download">Download</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

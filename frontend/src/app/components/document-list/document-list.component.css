@@ -1,0 +1,114 @@
+.document-list-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+h2 {
+  color: #333;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 10px;
+}
+
+h3 {
+  color: #444;
+  margin: 20px 0 10px;
+}
+
+.loading, .no-documents, .no-storage {
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  text-align: center;
+  margin: 15px 0;
+}
+
+.count {
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: #3f51b5;
+  font-size: 1.1em;
+}
+
+.upload-section, .train-section {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.file-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+button:hover {
+  background-color: #0069d9;
+}
+
+.upload-status {
+  margin-left: 10px;
+  font-style: italic;
+}
+
+.document-table, .storage-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+}
+
+.document-table th, .document-table td,
+.storage-table th, .storage-table td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.document-table th, .storage-table th {
+  background-color: #f2f2f2;
+  font-weight: bold;
+}
+
+.document-item:hover {
+  background-color: #f5f5f5;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  padding: 5px 10px;
+  border-radius: 4px;
+  text-decoration: none;
+  color: white;
+  font-size: 14px;
+}
+
+.btn-view {
+  background-color: #17a2b8;
+}
+
+.btn-download {
+  background-color: #28a745;
+}
+
+.btn:hover {
+  opacity: 0.9;
+}
+
+/* LocalStorage section removed for cleaner UI */

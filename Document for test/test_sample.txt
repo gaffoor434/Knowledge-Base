@@ -1,0 +1,10 @@
+This is a test document to verify that the file watcher is working correctly.
+
+The knowledge base system should:
+1. Detect this file
+2. Extract its text content
+3. Store it in MongoDB
+4. Generate embeddings
+5. Store the embeddings in Qdrant
+adding extra line for test just formfesdjcnbhcbavschjmsd cbkjhjfvDSHbj nxbcghvsdbcfhnjlas nZHb c
+This will confirm that our implementation is working properly.
