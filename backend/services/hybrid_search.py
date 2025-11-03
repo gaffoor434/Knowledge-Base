@@ -1,86 +1,94 @@
-from .bm25_service import BM25Service
+import logging
+from typing import List, Dict, Any, Callable
 
-def exact_match_check(docs, query_text):
-    q = query_text.strip().lower()
-    for d in docs:
-        if q in d['text'].lower():
-            return {"id": d['id'], "text": d['text']}
-    return None
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-def normalize_scores_bm25(scores):
-    vals = [s['bm25_score'] for s in scores]
-    if not vals:
-        return scores
-    mn, mx = min(vals), max(vals)
-    for s in scores:
-        s['bm25_norm'] = 0.0 if mx == mn else (s['bm25_score'] - mn) / (mx - mn)
-    return scores
 
-def normalize_scores_vector(vec_results):
-    vals = [r['score'] for r in vec_results]
-    if not vals:
-        return vec_results
-    mn, mx = min(vals), max(vals)
-    for r in vec_results:
-        r['vec_norm'] = 0.0 if mx == mn else (r['score'] - mn) / (mx - mn)
-    return vec_results
+def normalize_scores(results: List[Dict[str, Any]], score_key: str, normalized_key: str):
+    """Normalizes scores in a list of results from 0 to 1."""
+    if not results:
+        return
 
-def hybrid_search(query_text, bm25_service: BM25Service, qdrant_search_fn, top_k=7,
-                  min_combined_score: float = 0.12, require_both: bool = False):
+    scores = [r.get(score_key, 0.0) for r in results if r.get(score_key) is not None]
+    if not scores:
+        return
+
+    min_score, max_score = min(scores), max(scores)
+
+    for r in results:
+        score = r.get(score_key, 0.0)
+        if max_score == min_score:
+            r[normalized_key] = 0.0 if min_score == 0 else 1.0
+        else:
+            r[normalized_key] = (score - min_score) / (max_score - min_score)
+
+
+def hybrid_search(
+    query_text: str,
+    bm25_results: List[Dict[str, Any]],
+    vector_results: List[Dict[str, Any]],
+    bm25_weight: float = 0.5,
+    vector_weight: float = 0.5,
+    top_k: int = 10
+) -> List[Dict[str, Any]]:
     """
-    Enhanced hybrid search: BM25 + Vector -> re-rank -> apply thresholds.
-    Returns a list of chunk dicts or an empty list if nothing relevant.
+    Performs a hybrid search by merging and re-ranking BM25 and vector search results.
+    - Normalizes scores for both search methods.
+    - Combines scores with specified weights.
+    - Filters out results missing essential metadata.
+    - Logs top results for debugging.
     """
-    bm25_results = bm25_service.query(query_text, top_k=top_k) or []
-    vector_results = qdrant_search_fn(query_text, top_k=top_k) or []
+    # Normalize BM25 scores
+    normalize_scores(bm25_results, score_key="bm25_score", normalized_key="bm25_norm")
 
-    # Fail fast if no documents are indexed
-    if (not bm25_service.docs) and (not vector_results):
-        return []
+    # Vector results from qdrant_service are already normalized to 'vec_norm'
+    # If not, you would normalize them here, e.g.:
+    # normalize_scores(vector_results, score_key="score", normalized_key="vec_norm")
 
-    # Normalize scores
-    bm25_res = normalize_scores_bm25(bm25_results)
-    vec_res = normalize_scores_vector(vector_results)
-
+    # Merge results using a unique identifier (e.g., a tuple of document_name and chunk_index)
     merged = {}
-    for r in bm25_res:
-        merged[r['id']] = {
-            'id': r['id'],
-            'text': r.get('text', ''),
-            'bm25_score': r['bm25_score'],
-            'bm25_norm': r.get('bm25_norm', 0.0),
-            'vec_score': 0.0,
-            'vec_norm': 0.0,
-            'document_name': r.get('document_name', '')
+
+    for r in bm25_results:
+        # A unique key for each chunk
+        chunk_key = (r.get("document_name"), r.get("chunk_index"))
+        if not all(k is not None for k in chunk_key):
+            continue
+        merged[chunk_key] = {
+            "document_name": r.get("document_name"),
+            "text": r.get("text"),
+            "bm25_norm": r.get("bm25_norm", 0.0),
+            "vec_norm": 0.0
         }
 
-    for r in vec_res:
-        if r['id'] in merged:
-            merged[r['id']]['vec_score'] = r.get('score', 0.0)
-            merged[r['id']]['vec_norm'] = r.get('vec_norm', 0.0)
+    for r in vector_results:
+        chunk_key = (r.get("document_name"), r.get("chunk_index"))
+        if not all(k is not None for k in chunk_key):
+            continue
+
+        if chunk_key in merged:
+            merged[chunk_key]["vec_norm"] = r.get("vec_norm", 0.0)
         else:
-            merged[r['id']] = {
-                'id': r['id'],
-                'text': r.get('text', ''),
-                'bm25_score': 0.0,
-                'bm25_norm': 0.0,
-                'vec_score': r.get('score', 0.0),
-                'vec_norm': r.get('vec_norm', 0.0),
-                'document_name': r.get('document_name', '')
+            merged[chunk_key] = {
+                "document_name": r.get("document_name"),
+                "text": r.get("text"),
+                "bm25_norm": 0.0,
+                "vec_norm": r.get("vec_norm", 0.0)
             }
 
-    BM25_WEIGHT = 0.6
-    VEC_WEIGHT = 0.4
-    merged_list = list(merged.values())
+    # Calculate combined score and filter out incomplete entries
+    results = []
+    for chunk_key, scores in merged.items():
+        if scores.get("document_name") and scores.get("text"):
+            scores["combined"] = (bm25_weight * scores["bm25_norm"]) + (vector_weight * scores["vec_norm"])
+            results.append(scores)
 
-    for m in merged_list:
-        m['combined'] = BM25_WEIGHT * m.get('bm25_norm', 0.0) + VEC_WEIGHT * m.get('vec_norm', 0.0)
+    # Sort by the new combined score
+    results.sort(key=lambda x: x["combined"], reverse=True)
 
-    # Filter by thresholds
-    merged_list.sort(key=lambda x: x['combined'], reverse=True)
-    merged_list = [m for m in merged_list if m.get('combined', 0.0) >= min_combined_score]
+    # Log the top results for debugging
+    top_results_log = [(r['document_name'], round(r['combined'], 4)) for r in results[:5]]
+    logger.debug("Hybrid top results: %s", top_results_log)
 
-    if require_both:
-        merged_list = [m for m in merged_list if m.get('bm25_norm', 0.0) >= 0.08 and m.get('vec_norm', 0.0) >= 0.08]
-
-    return merged_list[:5]
+    return results[:top_k]

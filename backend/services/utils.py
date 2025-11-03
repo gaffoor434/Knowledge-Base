@@ -57,7 +57,7 @@ def sentence_split(text: str) -> List[str]:
     return [p.strip() for p in parts if p and p.strip()]
 
 
-def adaptive_sentence_chunks(text: str, max_tokens: int = 400, overlap_sentences: int = 1) -> List[str]:
+def adaptive_sentence_chunks(text: str, max_tokens: int = 400, overlap_sentences: int = 1, min_words: int = 50) -> List[str]:
     """
     Build chunks by accumulating sentences until reaching token budget.
     Slight sentence overlap to preserve context.
@@ -82,7 +82,7 @@ def adaptive_sentence_chunks(text: str, max_tokens: int = 400, overlap_sentences
     if cur:
         chunks.append(' '.join(cur).strip())
     # filter tiny chunks
-    return [c for c in chunks if count_tokens(c) >= 20 or len(c.split()) >= 50]
+    return [c for c in chunks if len(c.split()) >= min_words]
 
 
 def get_dynamic_chunks(docs: List[Dict[str, Any]], max_context_tokens: int = 3000) -> List[Dict[str, Any]]:

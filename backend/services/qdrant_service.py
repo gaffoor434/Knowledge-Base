@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Qdrant configuration
-QDRANT_PATH = r"D:\knowledge base\qdrant"
+QDRANT_PATH = r"/qdrant"
 QDRANT_COLLECTION = "knowledge_base"
 QDRANT_PORT = 6333
 QDRANT_HOST = "localhost"
@@ -43,30 +43,7 @@ def ensure_qdrant_running():
         test_client.get_collections()
         logger.info("Qdrant is running.")
     except Exception as e:
-        logger.info(f"Qdrant not reachable ({e}). Attempting to start it from {QDRANT_PATH}...")
-        # Attempt to start Qdrant binary
-        if platform.system() == "Windows":
-            qdrant_exe = os.path.join(QDRANT_PATH, "qdrant.exe")
-            creation_flags = subprocess.CREATE_NO_WINDOW
-        else:
-            qdrant_exe = os.path.join(QDRANT_PATH, "qdrant")
-            creation_flags = 0
-        try:
-            subprocess.Popen([qdrant_exe], cwd=QDRANT_PATH, creationflags=creation_flags)
-        except Exception as start_err:
-            logger.error(f"Failed to start Qdrant: {start_err}")
-            raise
-        # wait and re-check
-        for i in range(20):
-            time.sleep(2)
-            try:
-                test_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, timeout=5.0)
-                test_client.get_collections()
-                logger.info("Qdrant started successfully.")
-                return
-            except Exception:
-                logger.info("Waiting for Qdrant to become available...")
-        raise RuntimeError("Unable to start Qdrant; please start it manually.")
+        logger.info(f"Qdrant not reachable ({e}). Please ensure Qdrant is running manually.")
 
 
 def ensure_collection_exists():
@@ -90,24 +67,24 @@ def ensure_collection_exists():
 
 def create_payload_indices():
     try:
+        client = get_qdrant_client()
         # Common metadata keys we'll index for filters
         indices = [
-            ("document_id", models.PayloadSchemaType.KEYWORD),
+            ("document_path", models.PayloadSchemaType.KEYWORD),
             ("document_name", models.PayloadSchemaType.KEYWORD),
-            ("source_type", models.PayloadSchemaType.KEYWORD),
+            ("is_table", models.PayloadSchemaType.BOOL),
             ("chunk_index", models.PayloadSchemaType.INTEGER),
             ("page_number", models.PayloadSchemaType.INTEGER),
-            ("section_title", models.PayloadSchemaType.KEYWORD),
+            ("page", models.PayloadSchemaType.INTEGER), # For pdfplumber tables
         ]
         for field_name, schema in indices:
             try:
                 client.create_payload_index(collection_name=QDRANT_COLLECTION, field_name=field_name, field_schema=schema)
+                logger.info(f"Created payload index for: {field_name}")
             except UnexpectedResponse as e:
-                # Some older qdrant-client versions may raise an error if index exists; ignore
                 logger.debug(f"Payload index create warning for {field_name}: {e}")
     except Exception as e:
-        logger.error(f"Failed to create payload indices: {e}")
-        raise
+        logger.error(f"Failed to create payload indices: {e}", exc_info=True)
 
 
 def store_document_embeddings(document_path: str, document_name: str, chunks: List[str],
@@ -115,64 +92,55 @@ def store_document_embeddings(document_path: str, document_name: str, chunks: Li
                               metadatas: Optional[List[Dict[str, Any]]] = None) -> bool:
     """
     Store document chunks and embeddings in Qdrant.
-    Accepts precomputed embeddings and optional per-chunk metadata payloads.
+    Ensures consistent metadata and logs the operation.
     """
     try:
         client = get_qdrant_client()
 
-        # If embeddings not provided, compute them (backwards compatibility)
         if embeddings is None:
-            logger.info("No embeddings passed — generating inside qdrant_service.")
             embeddings = generate_embeddings(chunks)
 
         if not embeddings or len(embeddings) != len(chunks):
-            logger.error("Embeddings length mismatch or empty.")
+            logger.error("Embeddings length mismatch or empty for %s.", document_name)
             return False
 
         points = []
         for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
             point_id = str(uuid.uuid4())
-            payload = {
-                "document_id": document_path,
-                "document_name": document_name,
-                "chunk_index": i,
-                "text": chunk  # store full chunk text for better grounding/citations
-            }
-            # Merge optional metadata if provided
-            if metadatas and i < len(metadatas):
-                payload.update(metadatas[i])
 
-            points.append(models.PointStruct(
-                id=point_id,
-                vector=emb,
-                payload=payload
-            ))
+            payload = metadatas[i].copy() if metadatas and i < len(metadatas) else {}
 
-        # Upsert points in batches if many
-        batch_size = 256
+            # Ensure base fields are consistently present
+            payload["document_name"] = document_name
+            payload["document_path"] = document_path
+            payload["chunk_index"] = i
+            payload["text"] = chunk
+
+            points.append(models.PointStruct(id=point_id, vector=emb, payload=payload))
+
+        # Upsert points in batches
+        batch_size = 128
         for i in range(0, len(points), batch_size):
             batch = points[i:i + batch_size]
-            client.upsert(collection_name=QDRANT_COLLECTION, points=batch)
-            logger.info(f"Upserted points {i}..{i + len(batch) - 1}")
+            client.upsert(collection_name=QDRANT_COLLECTION, points=batch, wait=False)
 
-        logger.info(f"Stored {len(points)} chunks for document: {document_name}")
+        logger.info("Upserted %d chunks for %s", len(chunks), document_name)
         return True
     except Exception as e:
-        logger.exception(f"Error storing document embeddings: {e}")
+        logger.error(f"Error storing embeddings for %s: %s", document_name, e, exc_info=True)
         return False
 
 
 def delete_document(document_path: str) -> bool:
     try:
         client = get_qdrant_client()
-        # Delete by payload filter matching document_id/document_path
         client.delete(
             collection_name=QDRANT_COLLECTION,
             points_selector=models.FilterSelector(
                 filter=models.Filter(
                     must=[
                         models.FieldCondition(
-                            key="document_id",
+                            key="document_path",
                             match=models.MatchValue(value=document_path)
                         )
                     ]
@@ -192,27 +160,22 @@ def search_similar_chunks(query_embedding: List[float], top_k: int = 5) -> List[
         results = client.search(collection_name=QDRANT_COLLECTION, query_vector=query_embedding, limit=top_k)
         out = []
         for r in results:
+            payload = r.payload or {}
             out.append({
                 "score": getattr(r, "score", None),
-                "document_id": r.payload.get("document_id"),
-                "document_name": r.payload.get("document_name"),
-                "chunk_index": r.payload.get("chunk_index"),
-                "text": r.payload.get("text"),
-                # include any other payload keys present
-                **{k: v for k, v in (r.payload.items()) if k not in ("document_id", "document_name", "chunk_index", "text")}
+                "document_name": payload.get("document_name"),
+                "text": payload.get("text"),
+                **payload
             })
         
         # Normalize vector scores
         scores = [r.get('score', 0.0) or 0.0 for r in out]
         if scores:
-            mn, mx = min(scores), max(scores)
-            for i, r in enumerate(out):
-                raw = scores[i]
-                r['vec_norm'] = 0.0 if mx == mn else (raw - mn) / (mx - mn)
-        else:
+            min_s, max_s = min(scores), max(scores)
             for r in out:
-                r['vec_norm'] = 0.0
-                
+                score = r.get('score', 0.0) or 0.0
+                r['vec_norm'] = 0.0 if max_s == min_s else (score - min_s) / (max_s - min_s)
+
         return out
     except Exception as e:
         logger.exception(f"Error searching similar chunks: {e}")
@@ -220,16 +183,11 @@ def search_similar_chunks(query_embedding: List[float], top_k: int = 5) -> List[
 
 
 def count_documents() -> int:
-    """Count total number of documents in the collection."""
+    """Counts the total number of points (chunks) in the collection."""
     try:
         client = get_qdrant_client()
-        # Use scroll with limit=1 to get a small sample and check if collection has data
-        result = client.scroll(collection_name=QDRANT_COLLECTION, limit=1, with_payload=False)
-        if result and result[0]:
-            # If we got results, try to get a rough count by scrolling through
-            # This is not exact but good enough for our use case
-            return 1  # At least one document exists
-        return 0
+        info = client.get_collection(collection_name=QDRANT_COLLECTION)
+        return int(getattr(info, "points_count", info.get("points_count", 0)))
     except Exception as e:
         logger.exception(f"Error counting documents: {e}")
         return 0
