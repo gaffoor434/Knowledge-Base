@@ -1,0 +1,18 @@
+# Virtual environment
+venv/
+.env/
+
+# Node/Angular cache
+frontend/.angular/cache/
+node_modules/
+
+# Build artifacts
+__pycache__/
+*.pyc
+dist/
+build/
+
+# Executables
+*.exe
+*.dll
+*.lib
